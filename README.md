@@ -2,7 +2,7 @@
 TRACK PRECISE LOCATION AND ACCESS CAM IMAGES OF A VICTIM THROUGH A URL WITH AUTOMATED TELEGRAM BOT
 
 
-<img width="1200" height="628" alt="image" src="https://github.com/user-attachments/assets/06f68731-2713-4dff-a5a1-936d810ff5b4" />
+<img width="600" height="600" alt="image" src="https://github.com/user-attachments/assets/06f68731-2713-4dff-a5a1-936d810ff5b4" />
 
 
 
