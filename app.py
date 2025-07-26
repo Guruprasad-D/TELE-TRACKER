@@ -8,6 +8,7 @@ import requests
 from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import asyncio
+from dotenv import load_dotenv
 
 # -------------------- Flask Setup --------------------
 app = Flask(__name__)
@@ -42,13 +43,16 @@ def init_db():
 init_db()
 
 # -------------------- Telegram Bot Setup --------------------
-TELEGRAM_BOT_TOKEN = os.environ.get("BOT_TOKEN")  # use a key like BOT_TOKEN
-AUTHORIZED_KEY = os.environ.get("AUTH_KEY", "ztrack577802")  # optional
 
-authenticated_users = set()
+
+TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjkl-MNO_pqrSTUvwxYZ12345678"
+AUTHORIZED_KEY = "ztrack577802"
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+authenticated_users = set()
+
 
 # -------------------- Telegram Handlers --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -190,7 +194,7 @@ def telegram_webhook():
 # -------------------- Set Webhook Manually --------------------
 @app.route('/set_webhook')
 def set_webhook():
-    webhook_url = "https://tele-track-7lt7.onrender.com/webhook"
+    webhook_url = "https://gxsecurity.pythonanywhere.com/webhook"
     result = bot.set_webhook(webhook_url)
     return f"Webhook set: {result}"
 
