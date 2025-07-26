@@ -8,7 +8,6 @@ import requests
 from telegram import Bot, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 import asyncio
-from dotenv import load_dotenv
 
 # -------------------- Flask Setup --------------------
 app = Flask(__name__)
