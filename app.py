@@ -37,7 +37,7 @@ init_db()
 # -------------------- Telegram Bot Setup --------------------
 TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"  # Replace with your actual bot token
 AUTHORIZED_KEY = "secretkey123"
-RENDER_WEBHOOK_URL = "https://tele-track-syk8.onrender.com"# Your auth key for users
+RENDER_WEBHOOK_URL = "https://tele-track-syk8.onrender.com/webhook"# Your auth key for users
 authenticated_users = set()
 
 def send_telegram_message(message):
