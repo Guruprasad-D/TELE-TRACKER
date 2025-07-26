@@ -42,7 +42,7 @@ def init_db():
 init_db()
 
 # -------------------- Telegram Bot Setup --------------------
-TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"
+TELEGRAM_BOT_TOKEN = os.environ.get("8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0")
 AUTHORIZED_KEY = "ztrack577802"
 authenticated_users = set()
 
