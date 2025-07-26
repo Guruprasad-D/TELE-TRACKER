@@ -1,24 +1,16 @@
 FROM python:3.11-slim
 
+# Set working directory
 WORKDIR /app
 
-# Install dependencies
-RUN apt-get update && apt-get install -y \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-
-# Download and install cloudflared
-RUN wget https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -O /usr/local/bin/cloudflared \
-    && chmod +x /usr/local/bin/cloudflared
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
+# Copy all files
 COPY . .
 
-RUN mkdir -p /app/saved_files
-RUN mkdir -p /app/static
+# Install dependencies
+RUN pip install --no-cache-dir flask flask_httpauth python-telegram-bot==20.6
 
+# Expose port
 EXPOSE 5000
 
-CMD ["sh", "-c", "python tunnel_manager.py & gunicorn --bind 0.0.0.0:5000 app:app"]
+# Start the app
+CMD ["python", "app.py"]
