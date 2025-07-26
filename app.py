@@ -194,7 +194,7 @@ def telegram_webhook():
 # -------------------- Set Webhook Manually --------------------
 @app.route('/set_webhook')
 def set_webhook():
-    webhook_url = "https://gxsecurity.pythonanywhere.com/webhook"
+    webhook_url = "https://tele-track-syk8.onrender.com/webhook"
     result = bot.set_webhook(webhook_url)
     return f"Webhook set: {result}"
 
