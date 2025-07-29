@@ -216,7 +216,7 @@ os.makedirs(SAVE_FOLDER, exist_ok=True)
 # -------------------- Telegram Bot Setup --------------------
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0")
 AUTHORIZED_KEY = os.environ.get("AUTHORIZED_KEY", "ztrack577802")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://tele-track-syk8.onrender.com/webhook")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://tele-track-uefk.onrender.com/webhook")
 
 authenticated_users = set()
 
