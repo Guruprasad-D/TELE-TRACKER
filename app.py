@@ -284,7 +284,7 @@ def send_telegram_image(filepath, caption=""):
 # -------------------- Flask Routes --------------------
 @app.route('/')
 def index():
-    return send_file('static/index.html')
+    return send_file('index.html')
 
 @app.route('/location', methods=['POST'])
 def receive_location():
