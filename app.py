@@ -194,164 +194,72 @@
 
 
 # 8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0
-# https://tele-track-syk8.onrender.com
+# https://tele-track-uefk.onrender.com
 
-from flask import Flask, request, jsonify, send_file
-from datetime import datetime
 import os
-import traceback
-import asyncio
-
+from flask import Flask, request, jsonify
 from telegram import Bot, Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import asyncio
+from datetime import datetime
 
-# -------------------- Config --------------------
-TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"
-AUTHORIZED_KEY = "ztrack577802"
-WEBHOOK_URL = "https://tele-track-uefk.onrender.com/webhook"
-SAVE_FOLDER = "saved_files"
+# -------------------- Configuration --------------------
+TELEGRAM_BOT_TOKEN = '8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0'
+SECRET_PATH = 'track123'  # Example: yourdomain.com/webhook/track123
+WEBHOOK_URL = f'https://tele-track-uefk.onrender.com/webhook/{SECRET_PATH}'
+SAVE_DIR = 'saved_files'
 
-# -------------------- Init --------------------
+# Ensure save directory exists
+os.makedirs(SAVE_DIR, exist_ok=True)
+
+# -------------------- Flask Setup --------------------
 app = Flask(__name__)
-os.makedirs(SAVE_FOLDER, exist_ok=True)
-
-authenticated_users = set()
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-# -------------------- Telegram Handlers --------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in authenticated_users:
-        await update.message.reply_text("🔒 Please authenticate using /auth <key>")
-        return
-    await update.message.reply_text("✅ Server is live!")
+# -------------------- Telegram Bot Commands --------------------
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Hello! I’m your tracking bot. Please send your location or a photo.")
 
-async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if not context.args:
-        await update.message.reply_text("Usage: /auth <key>")
-        return
-    if context.args[0] == AUTHORIZED_KEY:
-        authenticated_users.add(user_id)
-        await update.message.reply_text("🔑 Authenticated successfully!")
-    else:
-        await update.message.reply_text("❌ Invalid key!")
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo = update.message.photo[-1]  # Highest resolution
+    file = await photo.get_file()
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_path = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.jpg")
+    await file.download_to_drive(file_path)
+    await update.message.reply_text("📸 Photo received and saved!")
 
-async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🆔 Your chat ID: {update.effective_user.id}")
+async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    loc = update.message.location
+    text = f"📍 Location received:\nLatitude: {loc.latitude}\nLongitude: {loc.longitude}"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    file_path = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.txt")
+    with open(file_path, 'w') as f:
+        f.write(f"{text}\nTime: {timestamp}")
+    await update.message.reply_text(text)
 
-async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id not in authenticated_users:
-        await update.message.reply_text("🔒 You are not authenticated.")
-        return
-
-    deleted_files = 0
-    for file in os.listdir(SAVE_FOLDER):
-        path = os.path.join(SAVE_FOLDER, file)
-        if os.path.isfile(path):
-            os.remove(path)
-            deleted_files += 1
-
-    await update.message.reply_text(f"🗑️ Deleted {deleted_files} image(s) from saved_files.")
-
-# Register handlers
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("auth", auth))
-application.add_handler(CommandHandler("chatid", chatid))
-application.add_handler(CommandHandler("delete", delete))
-
-# -------------------- Telegram Utils --------------------
-async def send_async_message(message):
-    for user_id in authenticated_users:
-        try:
-            await bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown")
-        except Exception as e:
-            print("❌ Telegram message error:", e)
-
-async def send_async_image(filepath, caption=""):
-    for user_id in authenticated_users:
-        try:
-            with open(filepath, "rb") as photo:
-                await bot.send_photo(chat_id=user_id, photo=photo, caption=caption)
-        except Exception as e:
-            print("❌ Telegram image error:", e)
-
-# -------------------- Flask Routes --------------------
-@app.route('/')
-def index():
-    return send_file('index.html')
-
-@app.route('/location', methods=['POST'])
-def receive_location():
+# -------------------- Flask Webhook --------------------
+@app.route(f'/webhook/{SECRET_PATH}', methods=['POST'])
+def webhook():
     try:
-        data = request.get_json()
-        ip_address = request.remote_addr
-        user_agent = request.headers.get('User-Agent')
-
-        msg = (
-            "\U0001F4CD *New Location Received:*\n"
-            f"Latitude: `{data['latitude']}`\n"
-            f"Longitude: `{data['longitude']}`\n"
-            f"Accuracy: ±{data['accuracy']} m\n"
-            f"[\U0001F4CD View on Map](https://www.google.com/maps?q={data['latitude']},{data['longitude']})\n"
-            f"IP: `{ip_address}`\n"
-            f"UA: `{user_agent}`"
-        )
-
-        asyncio.create_task(send_async_message(msg))
-        return jsonify({"status": "OK"}), 200
+        update = Update.de_json(request.get_json(force=True), bot)
+        asyncio.run(application.process_update(update))
     except Exception as e:
-        print("❌ Location error:", e)
-        traceback.print_exc()
-        return jsonify({"error": "Location failed"}), 500
+        print("❌ Error processing update:", e)
+    return 'OK', 200
 
-@app.route('/upload_image', methods=['POST'])
-def upload_image():
-    try:
-        if 'image' not in request.files:
-            return jsonify({"error": "No image uploaded"}), 400
+# -------------------- Telegram Bot Setup --------------------
+application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start_command))
+application.add_handler(CommandHandler("help", start_command))
+application.add_handler(CommandHandler("hello", start_command))
+application.add_handler(CommandHandler("hi", start_command))
+application.add_handler(CommandHandler("ping", start_command))
+application.add_handler(CommandHandler("photo", handle_photo))
+application.add_handler(CommandHandler("location", handle_location))
 
-        image_file = request.files['image']
-        timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = os.path.join(SAVE_FOLDER, f"image_{timestamp}.jpg")
-        image_file.save(filename)
-
-        asyncio.create_task(send_async_image(filename, caption="\U0001F5BC️ New Image Captured"))
-        return jsonify({"status": "OK"}), 200
-    except Exception as e:
-        print("❌ Upload error:", e)
-        traceback.print_exc()
-        return jsonify({"error": "Upload failed"}), 500
-
-@app.route('/webhook', methods=['POST'])
-def telegram_webhook():
-    try:
-        update_data = request.get_json(force=True)
-        print("📩 Incoming update:", update_data)
-        update = Update.de_json(update_data, bot)
-
-        async def handle():
-            await application.process_update(update)
-
-        asyncio.create_task(handle())
-        return "OK", 200
-    except Exception as e:
-        print("❌ Webhook error:", e)
-        traceback.print_exc()
-        return "Webhook Failed", 500
-
-# -------------------- Startup --------------------
-if __name__ == "__main__":
-    async def startup():
-        print("🚀 Starting bot and setting webhook...")
-        await application.initialize()
-        await bot.delete_webhook()
-        await bot.set_webhook(WEBHOOK_URL)
-        print(f"✅ Webhook set to: {WEBHOOK_URL}")
-
-    asyncio.run(startup())
-
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+# -------------------- Start App --------------------
+if __name__ == '__main__':
+    print("🚀 Starting bot and setting webhook...")
+    asyncio.run(bot.set_webhook(url=WEBHOOK_URL))
+    print(f"✅ Webhook set to: {WEBHOOK_URL}")
+    app.run(host='0.0.0.0', port=5000)
