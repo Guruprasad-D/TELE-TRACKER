@@ -331,12 +331,18 @@ def upload_image():
 def telegram_webhook():
     try:
         update = Update.de_json(request.get_json(force=True), bot)
-        asyncio.ensure_future(application.process_update(update))
+
+        async def handle_update():
+            await application.process_update(update)
+
+        asyncio.run(handle_update())  # THIS runs the async handler properly
+
         return "OK", 200
     except Exception as e:
         print("❌ Webhook error:", e)
         traceback.print_exc()
         return "Webhook Failed", 500
+
 
 # -------------------- Main Startup --------------------
 if __name__ == "__main__":
