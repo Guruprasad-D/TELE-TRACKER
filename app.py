@@ -214,9 +214,9 @@ SAVE_FOLDER = "saved_files"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
 
 # -------------------- Telegram Bot Setup --------------------
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0")
-AUTHORIZED_KEY = os.environ.get("AUTHORIZED_KEY", "ztrack577802")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "https://tele-track-uefk.onrender.com/webhook")
+TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"
+AUTHORIZED_KEY = "ztrack577802"
+WEBHOOK_URL = "https://tele-track-uefk.onrender.com/webhook"
 
 authenticated_users = set()
 
@@ -328,10 +328,10 @@ def upload_image():
         return jsonify({"error": "Upload failed"}), 500
 
 @app.route('/webhook', methods=['POST'])
-async def telegram_webhook():
+def telegram_webhook():
     try:
         update = Update.de_json(request.get_json(force=True), bot)
-        await application.process_update(update)
+        asyncio.ensure_future(application.process_update(update))
         return "OK", 200
     except Exception as e:
         print("❌ Webhook error:", e)
@@ -340,15 +340,16 @@ async def telegram_webhook():
 
 # -------------------- Main Startup --------------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    print(f"\U0001F680 Flask running on port {port}")
+    import asyncio
 
     async def startup():
+        print("🚀 Starting bot and setting webhook...")
         await application.initialize()
-        await application.start()
-        await bot.delete_webhook()
+        await bot.delete_webhook()  # Optional: reset any old webhooks
         await bot.set_webhook(WEBHOOK_URL)
         print(f"✅ Webhook set to: {WEBHOOK_URL}")
 
-    asyncio.get_event_loop().run_until_complete(startup())
-    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    asyncio.run(startup())
+
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
