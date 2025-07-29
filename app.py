@@ -347,17 +347,30 @@ async def telegram_webhook():
         traceback.print_exc()
         return "Webhook Failed", 500
 
-# -------------------- Telegram Init on Startup --------------------
-@app.before_first_request
-def init_telegram_bot():
-    print("🚀 Initializing Telegram application...")
-    asyncio.create_task(application.initialize())
-    asyncio.create_task(application.start())
-    bot.set_webhook(WEBHOOK_URL)
-    print(f"✅ Webhook set: {WEBHOOK_URL}")
+# # -------------------- Telegram Init on Startup --------------------
+# @app.before_first_request
+# def init_telegram_bot():
+#     print("🚀 Initializing Telegram application...")
+#     asyncio.create_task(application.initialize())
+#     asyncio.create_task(application.start())
+#     bot.set_webhook(WEBHOOK_URL)
+#     print(f"✅ Webhook set: {WEBHOOK_URL}")
 
-# -------------------- Start Flask App --------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🚀 Flask running on port {port}")
+
+    # Set webhook
+    bot.delete_webhook()  # Clear old one (optional)
+    bot.set_webhook(WEBHOOK_URL)
+    print(f"✅ Webhook set to: {WEBHOOK_URL}")
+
+    # Run telegram bot initialization
+    async def init_and_run():
+        await application.initialize()
+        await application.start()
+
+    asyncio.get_event_loop().run_until_complete(init_and_run())
+
+    # Start Flask server
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
