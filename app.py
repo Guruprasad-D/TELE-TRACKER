@@ -197,69 +197,72 @@
 # https://tele-track-uefk.onrender.com
 
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from telegram import Bot, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 import asyncio
 from datetime import datetime
 
-# -------------------- Configuration --------------------
+# --- Configuration ---
 TELEGRAM_BOT_TOKEN = '8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0'
-SECRET_PATH = 'track123'  # Example: yourdomain.com/webhook/track123
-WEBHOOK_URL = f'https://tele-track-uefk.onrender.com/webhook/{SECRET_PATH}'
+SECRET_PATH = 'track123'  # your secret webhook path
+WEBHOOK_URL = f'https://tele-track-uefk.onrender.com/webhook/{SECRET_PATH}'  # replace with your public URL + secret path
 SAVE_DIR = 'saved_files'
 
-# Ensure save directory exists
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-# -------------------- Flask Setup --------------------
+# --- Flask Setup ---
 app = Flask(__name__)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
-# -------------------- Telegram Bot Commands --------------------
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello! I’m your tracking bot. Please send your location or a photo.")
+# --- Telegram Handlers ---
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 Hello! Send me your location or a photo and I'll save it."
+    )
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    photo = update.message.photo[-1]  # Highest resolution
+    photo = update.message.photo[-1]  # highest resolution photo
     file = await photo.get_file()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.jpg")
-    await file.download_to_drive(file_path)
+    filename = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.jpg")
+    await file.download_to_drive(filename)
     await update.message.reply_text("📸 Photo received and saved!")
 
 async def handle_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loc = update.message.location
     text = f"📍 Location received:\nLatitude: {loc.latitude}\nLongitude: {loc.longitude}"
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_path = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.txt")
-    with open(file_path, 'w') as f:
+    filename = os.path.join(SAVE_DIR, f"{update.effective_user.id}_{timestamp}.txt")
+    with open(filename, 'w') as f:
         f.write(f"{text}\nTime: {timestamp}")
     await update.message.reply_text(text)
 
-# -------------------- Flask Webhook --------------------
+# --- Application Setup ---
+application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+application.add_handler(CommandHandler("start", start))
+application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+application.add_handler(MessageHandler(filters.LOCATION, handle_location))
+
+# --- Webhook Route ---
 @app.route(f'/webhook/{SECRET_PATH}', methods=['POST'])
-def webhook():
+def telegram_webhook():
     try:
         update = Update.de_json(request.get_json(force=True), bot)
-        asyncio.run(application.process_update(update))
+        # Run the update processing in a fresh event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(application.process_update(update))
+        loop.close()
     except Exception as e:
-        print("❌ Error processing update:", e)
-    return 'OK', 200
+        print("❌ Webhook error:", e)
+    return "OK", 200
 
-# -------------------- Telegram Bot Setup --------------------
-application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-application.add_handler(CommandHandler("start", start_command))
-application.add_handler(CommandHandler("help", start_command))
-application.add_handler(CommandHandler("hello", start_command))
-application.add_handler(CommandHandler("hi", start_command))
-application.add_handler(CommandHandler("ping", start_command))
-application.add_handler(CommandHandler("photo", handle_photo))
-application.add_handler(CommandHandler("location", handle_location))
-
-# -------------------- Start App --------------------
+# --- Main entry point ---
 if __name__ == '__main__':
-    print("🚀 Starting bot and setting webhook...")
-    asyncio.run(bot.set_webhook(url=WEBHOOK_URL))
+    print("🚀 Setting Telegram webhook...")
+    asyncio.run(bot.set_webhook(WEBHOOK_URL))
     print(f"✅ Webhook set to: {WEBHOOK_URL}")
+
+    print("🚀 Starting Flask server...")
     app.run(host='0.0.0.0', port=5000)
