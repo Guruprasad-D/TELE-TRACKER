@@ -200,7 +200,7 @@ from flask import Flask, request, jsonify, send_file
 from datetime import datetime
 import os
 import traceback
-import requests
+import threading
 import asyncio
 
 from telegram import Bot, Update
@@ -222,6 +222,17 @@ authenticated_users = set()
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+# Create a dedicated event loop for async Telegram calls
+telegram_loop = asyncio.new_event_loop()
+def run_telegram_loop():
+    asyncio.set_event_loop(telegram_loop)
+    telegram_loop.run_forever()
+
+threading.Thread(target=run_telegram_loop, daemon=True).start()
+
+def run_async(coro):
+    asyncio.run_coroutine_threadsafe(coro, telegram_loop)
 
 # -------------------- Telegram Handlers --------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -269,7 +280,7 @@ application.add_handler(CommandHandler("delete", delete))
 def send_telegram_message(message):
     for user_id in authenticated_users:
         try:
-            asyncio.run(bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown"))
+            run_async(bot.send_message(chat_id=user_id, text=message, parse_mode="Markdown"))
         except Exception as e:
             print("❌ Telegram message error:", e)
 
@@ -277,7 +288,7 @@ def send_telegram_image(filepath, caption=""):
     for user_id in authenticated_users:
         try:
             with open(filepath, "rb") as photo:
-                asyncio.run(bot.send_photo(chat_id=user_id, photo=photo, caption=caption))
+                run_async(bot.send_photo(chat_id=user_id, photo=photo, caption=caption))
         except Exception as e:
             print("❌ Telegram image error:", e)
 
@@ -330,32 +341,31 @@ def upload_image():
 @app.route('/webhook', methods=['POST'])
 def telegram_webhook():
     try:
-        update = Update.de_json(request.get_json(force=True), bot)
+        update_data = request.get_json(force=True)
+        print("📩 Incoming update:", update_data)  # For debug
+        update = Update.de_json(update_data, bot)
 
         async def handle_update():
             await application.process_update(update)
 
-        asyncio.run(handle_update())  # THIS runs the async handler properly
-
+        run_async(handle_update())
         return "OK", 200
     except Exception as e:
         print("❌ Webhook error:", e)
         traceback.print_exc()
         return "Webhook Failed", 500
 
-
 # -------------------- Main Startup --------------------
 if __name__ == "__main__":
-    import asyncio
-
     async def startup():
         print("🚀 Starting bot and setting webhook...")
         await application.initialize()
-        await bot.delete_webhook()  # Optional: reset any old webhooks
+        await bot.delete_webhook()
         await bot.set_webhook(WEBHOOK_URL)
         print(f"✅ Webhook set to: {WEBHOOK_URL}")
 
-    asyncio.run(startup())
+    # Run startup in the background event loop
+    run_async(startup())
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
