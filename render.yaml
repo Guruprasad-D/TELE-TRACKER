@@ -9,3 +9,8 @@ services:
         value: 8068204110:AAELqo2Dres3tX5pvlC5O2wopyqFwaP2AM0
       - key: AUTHORIZED_KEY
         value: secretkey123
+      - key: ADMIN_USER
+        value: admin
+      - key: ADMIN_PASSWORD 
+        value: admin
+        generateValue: true
