@@ -14,7 +14,12 @@ from dotenv import load_dotenv
 # -------------------- Flask Setup --------------------
 app = Flask(__name__)
 auth = HTTPBasicAuth()
-load_dotenv() 
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # This will only work locally
+except ImportError:
+    pass  # On Render, we'll use regular environment variables
 
 # -------------------- Configuration --------------------
 TELEGRAM_BOT_TOKEN = env.get('TELEGRAM_BOT_TOKEN')
