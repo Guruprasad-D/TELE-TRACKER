@@ -49,7 +49,7 @@ init_db()
 # -------------------- Cloudflared Tunnel --------------------
 def start_cloudflared(timeout=30):
     try:
-        cloudflared_path = os.path.join(os.getcwd(), "cloudflared.exe")
+        cloudflared_path = os.path.join(os.getcwd(), "cloudflared")
         process = subprocess.Popen(
             [cloudflared_path, "tunnel", "--url", "http://localhost:5000"],
             stdout=subprocess.PIPE,
