@@ -1,4 +1,4 @@
-# TELE-TRACK
+# TELE-TRACKER
 TRACK PRECISE LOCATION AND ACCESS CAM IMAGES OF A VICTIM THROUGH A URL WITH AUTOMATED TELEGRAM BOT
 
 
@@ -13,7 +13,7 @@ TRACK PRECISE LOCATION AND ACCESS CAM IMAGES OF A VICTIM THROUGH A URL WITH AUTO
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ```
-This is gurus code block 
+
 ```
 
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
