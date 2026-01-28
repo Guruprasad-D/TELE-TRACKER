@@ -26,7 +26,7 @@ from rich.text import Text
 from rich.align import Align
 
 # -------------------- Configuration --------------------
-TELEGRAM_BOT_TOKEN = '8479006793:AAGBL2QJ3zrCQYES54MsDezak4w2YFi_gIM'
+TELEGRAM_BOT_TOKEN = 'ENTER YOUR BOT TOKEN'
 AUTHORIZED_KEY = 'secretkey123'
 SAVE_FOLDER = "saved_files"
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB limit
