@@ -116,7 +116,7 @@ Before installing TELE-TRACKER, ensure you have the following:
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/yourusername/tele-tracker.git
+git clone https://github.com/Guruprasad-D/TELE-TRACKER
 cd tele-tracker
 ```
 
