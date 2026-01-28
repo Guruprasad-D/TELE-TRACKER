@@ -610,7 +610,7 @@ SOFTWARE.
 
 ---
 
-## 🙏 Acknowledgments
+## ⭐ Acknowledgments
 
 - [Cloudflare](https://www.cloudflare.com/) for tunnel services
 - [Telegram](https://telegram.org/) for bot API
